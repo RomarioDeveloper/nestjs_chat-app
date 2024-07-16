@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat</title>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+<h1>Chat</h1>
+<div id="messages"></div>
+<input id="message" type="text" placeholder="Enter your message" />
+<button onclick="sendMessage()">Send</button>
+<br><br>
+<button id="recordButton" onclick="startRecording()">Start Recording</button>
+<button id="stopButton" onclick="stopRecording()" disabled>Stop Recording</button>
+
+<script>
+    const socket = io();
+    let mediaRecorder;
+    let audioChunks = [];
+
+    socket.on('message', (message) => {
+        const messageElement = document.createElement('div');
+        if (message.type === 'text') {
+            messageElement.textContent = message.text;
+        } else if (message.type === 'voice') {
+            const audio = document.createElement('audio');
+            audio.src = message.url;
+            audio.controls = true;
+            messageElement.appendChild(audio);
+        }
+        document.getElementById('messages').appendChild(messageElement);
+    });
+
+    function sendMessage() {
+        const messageInput = document.getElementById('message');
+        socket.emit('message', { text: messageInput.value, type: 'text' });
+        messageInput.value = '';
+    }
+
+    function startRecording() {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.start();
+                document.getElementById('recordButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    audioChunks = [];
+                    const formData = new FormData();
+                    formData.append('file', audioBlob, 'voice-message.wav');
+
+                    fetch('/chat/upload', {
+                        method: 'POST',
+                        body: formData,
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            socket.emit('message', { type: 'voice', url: data.url });
+                        });
+                };
+            });
+    }
+
+    function stopRecording() {
+        mediaRecorder.stop();
+        document.getElementById('recordButton').disabled = false;
+        document.getElementById('stopButton').disabled = true;
+    }
+</script>
+</body>
+</html>
